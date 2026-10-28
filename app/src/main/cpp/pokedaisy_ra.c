@@ -29,7 +29,11 @@
 #include "rc_client.h"
 #include "rc_consoles.h"
 
+#ifdef PK_WITH_NDS
 #include "nds/pk_nds.h"
+#else
+#include "nds/pk_nds_off.h"   // no melonDS in this build: no DS cart is ever active
+#endif
 
 #define LOG_TAG "pokedaisy/ra"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)

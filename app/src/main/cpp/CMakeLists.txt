@@ -70,46 +70,15 @@ target_compile_definitions(rcheevos PUBLIC
     RC_CLIENT_SUPPORTS_HASH RC_HASH_NO_DISC RC_HASH_NO_ENCRYPTED RC_HASH_NO_ZIP)
 
 # ---------------------------------------------------------------------------
-# Vendored melonDS (git submodule, pinned to 1.1) — its core library only, for
-# Nintendo DS carts (nds/pk_nds.cpp). The software 3D renderer, and its OpenGL one
-# ported to OpenGL ES 3.2 by our patch (DS RESOLUTION, nds/pk_nds_gl.cpp: added
-# below, not through ENABLE_OGLRENDERER, which brings glad and the compute
-# renderer), the ARM64 JIT, no GDB stub, no Qt frontend, no LTO (it would leak
-# into our link).
+# Nintendo DS (melonDS) is NOT built in this fork: its JIT is ARM64-only and a 32-bit ARM
+# handheld has Drastic for DS anyway. The JNI bridge includes nds/pk_nds_off.h (stubs)
+# instead of nds/pk_nds.h, so no DS cart is ever active. PK_WITH_NDS is never defined here.
 # ---------------------------------------------------------------------------
-get_filename_component(MELONDS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/melonds" ABSOLUTE)
-
-if(NOT EXISTS "${MELONDS_DIR}/src/NDS.h")
-    message(FATAL_ERROR "melonDS submodule missing at ${MELONDS_DIR} — run: git submodule update --init third_party/melonds")
-endif()
-
-set(BUILD_QT_SDL        OFF CACHE BOOL "" FORCE)
-set(ENABLE_OGLRENDERER  OFF CACHE BOOL "" FORCE)
-set(ENABLE_GDBSTUB      OFF CACHE BOOL "" FORCE)
-set(ENABLE_LTO_RELEASE  OFF CACHE BOOL "" FORCE)
-set(ENABLE_LTO          OFF CACHE BOOL "" FORCE)
-set(ENABLE_JIT          ON  CACHE BOOL "" FORCE)
-
-include("${MELONDS_DIR}/../patches/apply_melonds_patch.cmake")
-add_subdirectory("${MELONDS_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/melonds" EXCLUDE_FROM_ALL)
-target_sources(core PRIVATE
-    "${MELONDS_DIR}/src/GPU_OpenGL.cpp"
-    "${MELONDS_DIR}/src/GPU3D_OpenGL.cpp"
-    "${MELONDS_DIR}/src/OpenGLSupport.cpp")
-target_compile_definitions(core PUBLIC OGLRENDERER_ENABLED MELONDS_GLES "MELONDS_GL_HEADER=<GLES3/gl32.h>")
-target_link_libraries(core PUBLIC GLESv3 EGL)
 
 # ---------------------------------------------------------------------------
 # Our JNI bridge.
 # ---------------------------------------------------------------------------
-add_library(pokedaisy SHARED pokedaisy_jni.c pokedaisy_ra.c pk_call.c pk_cheats.c pk_rewind.c pk_savevf.c pk_wide.c pk_wide_gb.c pk_gb_field.c
-    nds/pk_nds.cpp nds/pk_nds_platform.cpp nds/pk_nds_field.cpp nds/pk_nds_call.cpp nds/pk_nds_wide.cpp
-    nds/pk_nds_music.cpp nds/pk_nds_gl.cpp)
-set_target_properties(pokedaisy PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
-# melonDS's headers test these (its own sources get them from its directory's add_definitions).
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
-    target_compile_definitions(pokedaisy PRIVATE ARCHITECTURE_ARM64=1)
-endif()
+add_library(pokedaisy SHARED pokedaisy_jni.c pokedaisy_ra.c pk_call.c pk_cheats.c pk_rewind.c pk_savevf.c pk_wide.c pk_wide_gb.c pk_gb_field.c)
 
 # mGBA's own sources get these (add_definitions in its directory only). Some of its
 # structs change shape with them - mCoreRewindContext is ~100 bytes longer with
@@ -124,7 +93,6 @@ target_include_directories(pokedaisy PRIVATE
 target_link_libraries(pokedaisy
     mgba
     rcheevos
-    core
     z
     android
     log)

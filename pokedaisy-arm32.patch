@@ -1,0 +1,300 @@
+diff --git a/.github/workflows/arm32.yml b/.github/workflows/arm32.yml
+new file mode 100644
+index 0000000..4736511
+--- /dev/null
++++ b/.github/workflows/arm32.yml
+@@ -0,0 +1,60 @@
++# Builds the armeabi-v7a (32-bit ARM) APK of this fork: run it from the Actions tab (Run workflow)
++# or by pushing to the `arm32` branch. The APK comes out as a downloadable artifact of the run.
++# Signed with a key made fresh for each run (sideloading only): uninstall the previous build first,
++# since Android refuses to update an app over an APK signed with a different key.
++name: Build arm32 APK
++
++on:
++  workflow_dispatch:
++  push:
++    branches: [arm32]
++
++permissions:
++  contents: read
++
++jobs:
++  apk:
++    name: armeabi-v7a release APK
++    runs-on: ubuntu-latest
++    timeout-minutes: 60
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++        with:
++          submodules: recursive
++
++      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
++        with:
++          distribution: temurin
++          java-version: 17
++
++      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
++        with:
++          packages: platform-tools
++          log-accepted-android-sdk-licenses: false
++
++      - name: NDK + CMake (app/build.gradle.kts pins them)
++        run: sdkmanager --install "ndk;28.2.13676358" "cmake;3.22.1" "platforms;android-34"
++
++      - uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
++
++      - name: Signing key for this run (app/build.gradle.kts reads keystore.properties)
++        run: |
++          keytool -genkeypair -keystore "$RUNNER_TEMP/fork.jks" -storepass forkpass123 -keypass forkpass123 \
++            -alias fork -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=PokeDaisy arm32 fork"
++          printf 'storeFile=%s\nstorePassword=forkpass123\nkeyAlias=fork\nkeyPassword=forkpass123\n' \
++            "$RUNNER_TEMP/fork.jks" > keystore.properties
++
++      - name: Release APK
++        run: ./gradlew :app:assembleRelease --stacktrace
++
++      - name: Show what the APK carries (expect lib/armeabi-v7a only)
++        run: |
++          apk="$(ls app/build/outputs/apk/release/*.apk | head -1)"
++          echo "$apk"
++          unzip -l "$apk" | grep -E 'lib/' || true
++
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++        with:
++          name: PokeDaisy-arm32-apk
++          path: app/build/outputs/apk/release/*.apk
++          retention-days: 30
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index eef6445..ecccb5b 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -74,8 +74,9 @@ android {
+         buildConfigField("boolean", "FEATURE_SCREENSCRAPER", featureFlag("screenScraper").toString())
+ 
+         ndk {
+-            // Thor is arm64; add armeabi-v7a later only if a target device needs it.
+-            abiFilters += "arm64-v8a"
++            // This fork targets 32-bit ARM handhelds (Retroid Pocket 2, Android 8.1): armeabi-v7a only.
++            // Nintendo DS (melonDS, ARM64 JIT) is left out of this build: see the CMakeLists.
++            abiFilters += "armeabi-v7a"
+         }
+         externalNativeBuild {
+             cmake {
+@@ -161,13 +162,6 @@ val licensesAsset by tasks.registering {
+         "blip_buf (in mGBA) - GNU LGPL 2.1" to "third_party/mgba/src/third-party/blip_buf/license.txt",
+         "inih (in mGBA) - BSD" to "third_party/mgba/src/third-party/inih/LICENSE.txt",
+         "rcheevos - MIT" to "third_party/rcheevos/LICENSE",
+-        "melonDS - GNU GPL 3.0" to "third_party/melonds/LICENSE",
+-        "FatFs (in melonDS)" to "third_party/melonds/src/fatfs/LICENSE.txt",
+-        "Teakra (in melonDS) - MIT" to "third_party/melonds/src/teakra/LICENSE",
+-        "xxHash (in melonDS) - BSD 2-Clause" to "third_party/licenses/xxHash-BSD-2-Clause.txt",
+-        "tiny-AES-c (in melonDS) - The Unlicense" to "third_party/melonds/src/tiny-AES-c/unlicense.txt",
+-        "blip_buf (in melonDS) - GNU LGPL 2.1" to "third_party/melonds/src/blip-buf/license.txt",
+-        "Dolphin's ARM64 emitter (in melonDS) - GNU GPL 2.0 or later" to "third_party/melonds/src/dolphin/license_dolphin.txt",
+         "LCD and Scanlines shaders - MIT" to "third_party/licenses/mGBA-shaders-MIT.txt",
+         "xBR, xBRZ and ScaleFX shaders (libretro glsl-shaders) - MIT, xBRZ also GNU GPL 3.0" to "third_party/licenses/libretro-shaders.txt",
+         "PixelMplus - M+ FONT LICENSE" to "app/src/main/assets/fonts/LICENSE-PixelMplus.txt",
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index c8e428c..85e68a0 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -74,8 +74,6 @@
+                 <!-- Game Boy / Color, with TelemetrySampler.GAME_BOY_SUPPORT. -->
+                 <data android:mimeType="*/*" android:pathPattern=".*\\.gb" />
+                 <data android:mimeType="*/*" android:pathPattern=".*\\.gbc" />
+-                <!-- Nintendo DS, with TelemetrySampler.NDS_SUPPORT. -->
+-                <data android:mimeType="*/*" android:pathPattern=".*\\.nds" />
+             </intent-filter>
+         </activity>
+ 
+diff --git a/app/src/main/cpp/CMakeLists.txt b/app/src/main/cpp/CMakeLists.txt
+index 649d07a..f2090b8 100644
+--- a/app/src/main/cpp/CMakeLists.txt
++++ b/app/src/main/cpp/CMakeLists.txt
+@@ -70,46 +70,15 @@ target_compile_definitions(rcheevos PUBLIC
+     RC_CLIENT_SUPPORTS_HASH RC_HASH_NO_DISC RC_HASH_NO_ENCRYPTED RC_HASH_NO_ZIP)
+ 
+ # ---------------------------------------------------------------------------
+-# Vendored melonDS (git submodule, pinned to 1.1) — its core library only, for
+-# Nintendo DS carts (nds/pk_nds.cpp). The software 3D renderer, and its OpenGL one
+-# ported to OpenGL ES 3.2 by our patch (DS RESOLUTION, nds/pk_nds_gl.cpp: added
+-# below, not through ENABLE_OGLRENDERER, which brings glad and the compute
+-# renderer), the ARM64 JIT, no GDB stub, no Qt frontend, no LTO (it would leak
+-# into our link).
++# Nintendo DS (melonDS) is NOT built in this fork: its JIT is ARM64-only and a 32-bit ARM
++# handheld has Drastic for DS anyway. The JNI bridge includes nds/pk_nds_off.h (stubs)
++# instead of nds/pk_nds.h, so no DS cart is ever active. PK_WITH_NDS is never defined here.
+ # ---------------------------------------------------------------------------
+-get_filename_component(MELONDS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/melonds" ABSOLUTE)
+-
+-if(NOT EXISTS "${MELONDS_DIR}/src/NDS.h")
+-    message(FATAL_ERROR "melonDS submodule missing at ${MELONDS_DIR} — run: git submodule update --init third_party/melonds")
+-endif()
+-
+-set(BUILD_QT_SDL        OFF CACHE BOOL "" FORCE)
+-set(ENABLE_OGLRENDERER  OFF CACHE BOOL "" FORCE)
+-set(ENABLE_GDBSTUB      OFF CACHE BOOL "" FORCE)
+-set(ENABLE_LTO_RELEASE  OFF CACHE BOOL "" FORCE)
+-set(ENABLE_LTO          OFF CACHE BOOL "" FORCE)
+-set(ENABLE_JIT          ON  CACHE BOOL "" FORCE)
+-
+-include("${MELONDS_DIR}/../patches/apply_melonds_patch.cmake")
+-add_subdirectory("${MELONDS_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/melonds" EXCLUDE_FROM_ALL)
+-target_sources(core PRIVATE
+-    "${MELONDS_DIR}/src/GPU_OpenGL.cpp"
+-    "${MELONDS_DIR}/src/GPU3D_OpenGL.cpp"
+-    "${MELONDS_DIR}/src/OpenGLSupport.cpp")
+-target_compile_definitions(core PUBLIC OGLRENDERER_ENABLED MELONDS_GLES "MELONDS_GL_HEADER=<GLES3/gl32.h>")
+-target_link_libraries(core PUBLIC GLESv3 EGL)
+ 
+ # ---------------------------------------------------------------------------
+ # Our JNI bridge.
+ # ---------------------------------------------------------------------------
+-add_library(pokedaisy SHARED pokedaisy_jni.c pokedaisy_ra.c pk_call.c pk_cheats.c pk_rewind.c pk_savevf.c pk_wide.c pk_wide_gb.c pk_gb_field.c
+-    nds/pk_nds.cpp nds/pk_nds_platform.cpp nds/pk_nds_field.cpp nds/pk_nds_call.cpp nds/pk_nds_wide.cpp
+-    nds/pk_nds_music.cpp nds/pk_nds_gl.cpp)
+-set_target_properties(pokedaisy PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+-# melonDS's headers test these (its own sources get them from its directory's add_definitions).
+-if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+-    target_compile_definitions(pokedaisy PRIVATE ARCHITECTURE_ARM64=1)
+-endif()
++add_library(pokedaisy SHARED pokedaisy_jni.c pokedaisy_ra.c pk_call.c pk_cheats.c pk_rewind.c pk_savevf.c pk_wide.c pk_wide_gb.c pk_gb_field.c)
+ 
+ # mGBA's own sources get these (add_definitions in its directory only). Some of its
+ # structs change shape with them - mCoreRewindContext is ~100 bytes longer with
+@@ -124,7 +93,6 @@ target_include_directories(pokedaisy PRIVATE
+ target_link_libraries(pokedaisy
+     mgba
+     rcheevos
+-    core
+     z
+     android
+     log)
+diff --git a/app/src/main/cpp/nds/pk_nds_off.h b/app/src/main/cpp/nds/pk_nds_off.h
+new file mode 100644
+index 0000000..405bff7
+--- /dev/null
++++ b/app/src/main/cpp/nds/pk_nds_off.h
+@@ -0,0 +1,77 @@
++// Stand-in for pk_nds.h in builds without melonDS (PK_WITH_NDS not defined): the DS core is never built, so no DS cart
++// is ever active and every call below does nothing. Keep the signatures in step with pk_nds.h.
++#pragma once
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#include <android/native_window.h>
++
++#define PK_NDS_W 256
++#define PK_NDS_H 192
++
++static inline bool pk_nds_is_rom(const char* path) { (void) path; return false; }
++static inline bool pk_nds_init(const char* romPath, const char* savePath, int sampleRate) {
++    (void) romPath; (void) savePath; (void) sampleRate; return false;
++}
++static inline void pk_nds_deinit(void) {}
++static inline bool pk_nds_active(void) { return false; }
++
++static inline void pk_nds_set_keys(uint32_t keys) { (void) keys; }
++static inline void pk_nds_touch(bool down, int x, int y) { (void) down; (void) x; (void) y; }
++static inline void pk_nds_run_frame(void) {}
++
++static inline uint32_t* pk_nds_top(void) { return 0; }
++static inline uint32_t* pk_nds_bottom(void) { return 0; }
++
++static inline int pk_nds_read_audio(int16_t* out, int maxFrames) { (void) out; (void) maxFrames; return 0; }
++static inline void pk_nds_set_audio_rate(double rate) { (void) rate; }
++
++static inline bool pk_nds_flush_save(void) { return false; }
++static inline int pk_nds_finish_save(int maxFrames) { (void) maxFrames; return 0; }
++
++static inline bool pk_nds_save_state(const char* path) { (void) path; return false; }
++static inline bool pk_nds_load_state(const char* path) { (void) path; return false; }
++static inline int pk_nds_state_matches_save(const char* path) { (void) path; return -1; }
++
++static inline void pk_nds_read(uint32_t addr, uint8_t* dst, int len) { (void) addr; (void) dst; (void) len; }
++static inline bool pk_nds_write(uint32_t addr, const uint8_t* src, int len) {
++    (void) addr; (void) src; (void) len; return false;
++}
++
++static inline int pk_nds_field_bits(void) { return 0; }
++static inline int pk_nds_action(int action, const uint32_t args[4]) { (void) action; (void) args; return 0; }
++static inline int pk_nds_action_status(int seq) { (void) seq; return -1; }
++static inline bool pk_nds_action_results(int seq, uint32_t* out) { (void) seq; (void) out; return false; }
++static inline void pk_nds_set_wild_off(bool off) { (void) off; }
++static inline void pk_nds_set_wild_rates(const int32_t* triples, int n) { (void) triples; (void) n; }
++
++static inline int pk_nds_bgm(void) { return -1; }
++static inline bool pk_nds_bgm_fading(void) { return false; }
++static inline bool pk_nds_music_start(void) { return false; }
++static inline int pk_nds_music_read(int16_t* out, int maxFrames) { (void) out; (void) maxFrames; return 0; }
++static inline void pk_nds_music_fade_out(int frames) { (void) frames; }
++static inline void pk_nds_music_stop(void) {}
++
++static inline void pk_nds_wide_enable(bool on) { (void) on; }
++static inline void pk_nds_set_draw(bool draw, bool drawNext) { (void) draw; (void) drawNext; }
++static inline bool pk_nds_frame_drawn(void) { return false; }
++static inline bool pk_nds_wide_draw(uint32_t* out, int x, int y, int w, int h) {
++    (void) out; (void) x; (void) y; (void) w; (void) h; return false;
++}
++static inline int pk_nds_wide_scene(void) { return 0; }
++static inline void pk_nds_wide_window(int x, int y, int w, int h) { (void) x; (void) y; (void) w; (void) h; }
++
++static inline bool pk_nds_rom_code(char out[5]) { (void) out; return false; }
++static inline int pk_nds_rom_revision(void) { return 0; }
++static inline uint32_t pk_nds_rom_size(void) { return 0; }
++static inline const uint8_t* pk_nds_dtcm(void) { return 0; }
++
++// DS RESOLUTION / the GPU path (pk_nds_gl): nothing to scale or present without a DS.
++static inline void pk_nds_set_scale(int scale) { (void) scale; }
++static inline int pk_nds_scale(void) { return 1; }
++static inline int pk_nds_gpu_supported(void) { return 0; }
++static inline bool pk_nds_presented(void) { return false; }
++static inline bool pk_nds_gpu_frame_info(int64_t timestamp, int32_t out[6]) { (void) timestamp; (void) out; return false; }
++// The real one takes over the caller's reference to the window, so this one gives it back.
++static inline void pk_nds_set_window(struct ANativeWindow* window) { if (window) ANativeWindow_release(window); }
+diff --git a/app/src/main/cpp/pokedaisy_jni.c b/app/src/main/cpp/pokedaisy_jni.c
+index 347d55d..58d3293 100644
+--- a/app/src/main/cpp/pokedaisy_jni.c
++++ b/app/src/main/cpp/pokedaisy_jni.c
+@@ -30,7 +30,11 @@
+ #include "pk_savevf.h"
+ #include "pk_wide.h"
+ #include "pk_gb_field.h"
++#ifdef PK_WITH_NDS
+ #include "nds/pk_nds.h"
++#else
++#include "nds/pk_nds_off.h"   // no melonDS in this build: no DS cart is ever active
++#endif
+ 
+ #define LOG_TAG "pokedaisy/jni"
+ #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
+diff --git a/app/src/main/cpp/pokedaisy_ra.c b/app/src/main/cpp/pokedaisy_ra.c
+index 80ba458..3be4612 100644
+--- a/app/src/main/cpp/pokedaisy_ra.c
++++ b/app/src/main/cpp/pokedaisy_ra.c
+@@ -29,7 +29,11 @@
+ #include "rc_client.h"
+ #include "rc_consoles.h"
+ 
++#ifdef PK_WITH_NDS
+ #include "nds/pk_nds.h"
++#else
++#include "nds/pk_nds_off.h"   // no melonDS in this build: no DS cart is ever active
++#endif
+ 
+ #define LOG_TAG "pokedaisy/ra"
+ #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
+diff --git a/app/src/main/kotlin/com/pokedaisy/app/companion/data/Poller.kt b/app/src/main/kotlin/com/pokedaisy/app/companion/data/Poller.kt
+index f5d3203..b307c50 100644
+--- a/app/src/main/kotlin/com/pokedaisy/app/companion/data/Poller.kt
++++ b/app/src/main/kotlin/com/pokedaisy/app/companion/data/Poller.kt
+@@ -1073,7 +1073,7 @@ class TelemetrySampler {
+          * ([NDS_GAMES]) is read by the Gen 4 reader. False turns all of it off again (then drop the manifest's .nds
+          * VIEW pattern too): a DS cart is then never listed.
+          */
+-        const val NDS_SUPPORT = true
++        const val NDS_SUPPORT = false
+ 
+         /** The DS carts the companion reads, by their header's game code (0x0C) and revision (0x1E): Platinum USA rev 1,
+          * HeartGold / SoulSilver USA (rev 0, their only one), Black (USA / Europe, rev 0). The website's ROM check gets them through compat.json. */

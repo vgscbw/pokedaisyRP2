@@ -1073,7 +1073,7 @@ class TelemetrySampler {
          * ([NDS_GAMES]) is read by the Gen 4 reader. False turns all of it off again (then drop the manifest's .nds
          * VIEW pattern too): a DS cart is then never listed.
          */
-        const val NDS_SUPPORT = true
+        const val NDS_SUPPORT = false
 
         /** The DS carts the companion reads, by their header's game code (0x0C) and revision (0x1E): Platinum USA rev 1,
          * HeartGold / SoulSilver USA (rev 0, their only one), Black (USA / Europe, rev 0). The website's ROM check gets them through compat.json. */
