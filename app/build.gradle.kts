@@ -83,6 +83,9 @@ android {
                 // mGBA core is C-only, but keep a real STL around in case a
                 // transitive piece needs it; it's cheap.
                 arguments += "-DANDROID_STL=c++_shared"
+                // 32-bit ARM: the NDK builds Thumb by default; the emulator's hot loops (mGBA's CPU and
+                // video renderer, pk_wide) run faster as plain ARM code on the RP2's Cortex-A35 cores.
+                arguments += "-DANDROID_ARM_MODE=arm"
                 cFlags += "-O2"
                 // melonDS (the DS core) is C++: unoptimised, a DS game runs far below full speed even in debug builds.
                 cppFlags += "-O2"
